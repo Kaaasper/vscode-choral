@@ -1,6 +1,6 @@
 out
 dist
 node_modules
-.vscode/launch.json
+#.vscode/launch.json
 .vscode-test/
 *.vsix
