@@ -17,37 +17,54 @@ describe('Choral Extension Test Suite', () => {
 	});
 });
 
-import { ChoreographyDiagram, toMermaidSequenceDiagram } from '../choreography';
+import { getDiagramError, getDiagramResponseError, isChoreographyDiagram, RenderedChoreographyDiagram, supportsChoreographyDiagram } from '../choreography';
+import { toPanelMessage } from '../choreographyPanel';
 
-describe('Choreography Mermaid conversion', () => {
-	const range = new vscode.Range(0, 0, 0, 1);
-
-	it('renders messages, selections, and nested control flow', () => {
-		const diagram: ChoreographyDiagram = {
-			version: 1,
-			symbol: { name: 'Order@(Buyer, Seller)', range },
-			participants: [{ id: 'Buyer', label: 'Buyer' }, { id: 'Seller', label: 'Seller' }],
-			events: [
-				{ kind: 'message', from: 'Buyer', to: 'Seller', label: 'order: Item', range },
-				{ kind: 'alt', label: 'accepted', range, branches: [
-					{ label: 'yes', events: [{ kind: 'selection', from: 'Seller', to: 'Buyer', label: 'Accepted', range }] },
-					{ label: 'no', events: [{ kind: 'loop', label: 'retry', range, events: [{ kind: 'message', from: 'Buyer', to: 'Seller', label: 'order', range }] }] },
-				] },
-			],
+describe('Choreography diagram response', () => {
+	it('accepts the version 2 Mermaid response', () => {
+		const diagram: RenderedChoreographyDiagram = {
+			version: 2,
+			format: 'mermaid',
+			source: 'sequenceDiagram\np_Buyer->>p_Seller: order',
 		};
 
-		assert.strictEqual(toMermaidSequenceDiagram(diagram), [
-			'sequenceDiagram',
-			'participant p_Buyer as Buyer',
-			'participant p_Seller as Seller',
-			'p_Buyer->>p_Seller: order  Item',
-			'alt yes',
-			'\tp_Seller-->>p_Buyer: Accepted',
-			'else no',
-			'\tloop retry',
-			'\t\tp_Buyer->>p_Seller: order',
-			'\tend',
-			'end',
-		].join('\n'));
+		assert.strictEqual(isChoreographyDiagram(diagram), true);
+	});
+
+	it('rejects incompatible or malformed responses', () => {
+		const oldVersion = { version: 1, format: 'mermaid', source: 'sequenceDiagram' };
+		const unsupportedFormat = { version: 2, format: 'dot', source: 'digraph {}' };
+		const malformed = { version: 2, format: 'mermaid', source: 42 };
+		assert.strictEqual(isChoreographyDiagram(oldVersion), false);
+		assert.strictEqual(getDiagramResponseError(oldVersion), 'The Choral language server returned unsupported choreography diagram response version 1. Expected version 2.');
+		assert.strictEqual(isChoreographyDiagram(unsupportedFormat), false);
+		assert.strictEqual(getDiagramResponseError(unsupportedFormat), 'The Choral language server returned unsupported choreography diagram format "dot". Expected "mermaid".');
+		assert.strictEqual(isChoreographyDiagram(malformed), false);
+		assert.strictEqual(getDiagramResponseError(malformed), 'The Choral language server returned an invalid Mermaid choreography diagram response.');
+		assert.strictEqual(isChoreographyDiagram(null), false);
+	});
+
+	it('preserves structured server errors', () => {
+		const response = { error: { message: 'No choreography symbol was found at the cursor.', code: 'not-found' } };
+		assert.strictEqual(getDiagramError(response), 'No choreography symbol was found at the cursor.');
+	});
+
+	it('requires version 2 and Mermaid in the advertised formats', () => {
+		assert.strictEqual(supportsChoreographyDiagram({ version: 2, formats: ['mermaid'] }), true);
+		assert.strictEqual(supportsChoreographyDiagram({ version: 1, formats: ['mermaid'] }), false);
+		assert.strictEqual(supportsChoreographyDiagram({ version: 2, formats: ['dot'] }), false);
+		assert.strictEqual(supportsChoreographyDiagram({ version: 2 }), false);
+	});
+
+	it('passes the compiler-rendered Mermaid source to the panel unchanged', () => {
+		const source = 'sequenceDiagram\np_Buyer->>p_Seller: order: {Item};';
+		const diagram: RenderedChoreographyDiagram = { version: 2, format: 'mermaid', source };
+
+		assert.deepStrictEqual(toPanelMessage({ kind: 'diagram', diagram }), {
+			type: 'diagram',
+			mermaid: source,
+			title: 'Choral Choreography',
+			staleMessage: undefined,
+		});
 	});
 });

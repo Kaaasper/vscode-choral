@@ -1,8 +1,12 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
-import { ChoreographyDiagram, toMermaidSequenceDiagram } from './choreography';
+import { RenderedChoreographyDiagram } from './choreography';
 
-type PanelState = { kind: 'empty'; message: string } | { kind: 'diagram'; diagram: ChoreographyDiagram; staleMessage?: string } | { kind: 'error'; message: string };
+export type PanelState = { kind: 'empty'; message: string } | { kind: 'diagram'; diagram: RenderedChoreographyDiagram; staleMessage?: string } | { kind: 'error'; message: string };
+
+export function toPanelMessage(state: PanelState): object {
+	return state.kind === 'diagram' ? { type: 'diagram', mermaid: state.diagram.source, title: 'Choral Choreography', staleMessage: state.staleMessage } : { type: state.kind, message: state.message };
+}
 
 export class ChoreographyPanel implements vscode.Disposable {
 	private panel: vscode.WebviewPanel | undefined;
@@ -19,8 +23,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 	show(state: PanelState): void {
 		if (!this.panel) { return; }
-		const payload = state.kind === 'diagram' ? { type: 'diagram', mermaid: toMermaidSequenceDiagram(state.diagram), title: state.diagram.symbol.name, staleMessage: state.staleMessage } : { type: state.kind, message: state.message };
-		void this.panel.webview.postMessage(payload);
+		void this.panel.webview.postMessage(toPanelMessage(state));
 	}
 	isVisible(): boolean { return this.panel?.visible === true; }
 	dispose(): void { this.onDidDisposeEmitter.dispose(); this.panel?.dispose(); }

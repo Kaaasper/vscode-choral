@@ -1,13 +1,12 @@
 import * as vscode from 'vscode';
 import { workspace } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions } from 'vscode-languageclient/node';
-import { ChoreographyDiagram, ChoreographyDiagramParams, getDiagramError, isChoreographyDiagram } from './choreography';
+import { CHOREOGRAPHY_DIAGRAM_FORMAT, ChoreographyDiagramParams, getDiagramError, getDiagramResponseError, isChoreographyDiagram, RenderedChoreographyDiagram, supportsChoreographyDiagram } from './choreography';
 import { ChoreographyPanel } from './choreographyPanel';
 import { findOrInstallChoral } from './installer';
 
 let client: LanguageClient;
 const DIAGRAM_REQUEST = 'choral/choreographyDiagram';
-const DIAGRAM_CAPABILITY_VERSION = 1;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
 	console.log('Activating the Choral VS Code extension...');
@@ -28,7 +27,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		let diagramAvailable = false;
 		let refreshVersion = 0;
 		let selectionTimer: ReturnType<typeof setTimeout> | undefined;
-		let lastDiagram: ChoreographyDiagram | undefined;
+		let lastDiagram: RenderedChoreographyDiagram | undefined;
 
 		const isChoralEditor = (editor: vscode.TextEditor | undefined): editor is vscode.TextEditor => editor?.document.languageId === 'choral';
 		const refresh = async (): Promise<void> => {
@@ -44,7 +43,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 			}
 
 			const requestVersion = ++refreshVersion;
-			const params: ChoreographyDiagramParams = { textDocument: { uri: editor.document.uri.toString() }, position: editor.selection.active };
+			const params: ChoreographyDiagramParams = { textDocument: { uri: editor.document.uri.toString() }, position: editor.selection.active, format: CHOREOGRAPHY_DIAGRAM_FORMAT };
 			try {
 				const result = await client.sendRequest<unknown>(DIAGRAM_REQUEST, params);
 				if (requestVersion !== refreshVersion || !panel.isVisible()) { return; }
@@ -53,7 +52,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 					panel.show({ kind: 'diagram', diagram: result });
 					return;
 				}
-				const error = getDiagramError(result) ?? 'No choreography symbol was found at the cursor.';
+				const error = getDiagramError(result) ?? getDiagramResponseError(result);
 				if (lastDiagram) { panel.show({ kind: 'diagram', diagram: lastDiagram, staleMessage: error }); }
 				else { panel.show({ kind: 'error', message: error }); }
 			} catch (error) {
@@ -97,8 +96,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 		}));
 
 		await client.start();
-		const experimental = client.initializeResult?.capabilities.experimental as { choral?: { choreographyDiagram?: { version?: number } } } | undefined;
-		diagramAvailable = experimental?.choral?.choreographyDiagram?.version === DIAGRAM_CAPABILITY_VERSION;
+		const experimental = client.initializeResult?.capabilities.experimental as { choral?: { choreographyDiagram?: unknown } } | undefined;
+		diagramAvailable = supportsChoreographyDiagram(experimental?.choral?.choreographyDiagram);
 		await vscode.commands.executeCommand('setContext', 'choral.choreographyDiagramAvailable', diagramAvailable);
 		if (!diagramAvailable) { console.warn('Choral language server does not advertise choreography visualization support.'); }
 	} catch (error) {
