@@ -71,9 +71,8 @@
             },
             {
                 "command": "choral.showChoreography",
-                "title": "Show Choreography",
-                "category": "Choral",
-                "enablement": "choral.choreographyDiagramAvailable"
+                "title": "Show Visualization",
+                "category": "Choral"
             }
         ],
         "configuration": {
@@ -113,7 +112,7 @@
             "editor/title": [
                 {
                     "command": "choral.showChoreography",
-                    "when": "resourceLangId == choral && choral.choreographyDiagramAvailable",
+                    "when": "resourceLangId == choral",
                     "group": "navigation"
                 }
             ]
