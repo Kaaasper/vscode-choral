@@ -110,7 +110,29 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 			const status = document.getElementById('status');
 			const container = document.getElementById('diagram');
-			mermaid.initialize({ startOnLoad: false, securityLevel: 'strict', theme: 'base' });
+			mermaid.initialize({
+				startOnLoad: false,
+				securityLevel: 'strict',
+				theme: 'base',
+				themeVariables: {
+					actorBorder: 'var(--vscode-editorWidget-border, var(--vscode-editor-foreground))',
+					actorBkg: 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
+					actorTextColor: 'var(--vscode-editor-foreground)',
+					actorLineColor: 'var(--vscode-descriptionForeground)',
+					signalColor: 'var(--vscode-editor-foreground)',
+					signalTextColor: 'var(--vscode-editor-foreground)',
+					labelBoxBorderColor: 'var(--vscode-editorWidget-border, var(--vscode-editor-foreground))',
+					labelBoxBkgColor: 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
+					labelTextColor: 'var(--vscode-editor-foreground)',
+					loopTextColor: 'var(--vscode-editor-foreground)',
+					noteBorderColor: 'var(--vscode-editorWidget-border, var(--vscode-editor-foreground))',
+					noteBkgColor: 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
+					noteTextColor: 'var(--vscode-editorWidget-foreground, var(--vscode-editor-foreground))',
+					activationBorderColor: 'var(--vscode-editor-foreground)',
+					activationBkgColor: 'var(--vscode-editor-inactiveSelectionBackground)',
+					sequenceNumberColor: 'var(--vscode-editor-foreground)',
+				},
+			});
 
 			window.addEventListener('message', async (event) => {
 				const message = event.data;
