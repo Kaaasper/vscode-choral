@@ -90,6 +90,11 @@ export async function activate(context: vscode.ExtensionContext) {
 				return;
 			}
 			const editor = vscode.window.activeTextEditor;
+			// Focusing the choreography webview temporarily removes the active text editor.
+			// Keep the last diagram visible so its controls remain usable.
+			if (!editor) {
+				return;
+			}
 			if (!isChoralEditor(editor)) {
 				panel.show({ kind: 'empty', message: 'Select a Choral choreography to visualize.' });
 				return;

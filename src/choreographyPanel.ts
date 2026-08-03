@@ -6,6 +6,18 @@ export type PanelState =
 	| { kind: 'diagram'; mermaid: string; staleMessage?: string }
 	| { kind: 'error'; message: string };
 
+export type PanelCommand =
+	| { type: 'copyMermaid'; mermaid: string }
+	| { type: 'exportSvg'; svg: string };
+
+export interface PanelCommandActions {
+	copyMermaid(source: string): Thenable<void>;
+	chooseSvgFile(): Thenable<vscode.Uri | undefined>;
+	writeFile(uri: vscode.Uri, content: Uint8Array): Thenable<void>;
+}
+
+export type PanelCommandResult = 'copied' | 'exported' | 'cancelled' | 'ignored';
+
 export function toPanelMessage(state: PanelState): object {
 	if (state.kind === 'diagram') {
 		return {
@@ -16,6 +28,41 @@ export function toPanelMessage(state: PanelState): object {
 		};
 	}
 	return { type: state.kind, message: state.message };
+}
+
+export function toPanelCommand(value: unknown): PanelCommand | undefined {
+	if (typeof value !== 'object' || value === null || !('type' in value)) {
+		return undefined;
+	}
+	const message = value as Record<string, unknown>;
+	if (message.type === 'copyMermaid' && typeof message.mermaid === 'string') {
+		return { type: 'copyMermaid', mermaid: message.mermaid };
+	}
+	if (message.type === 'exportSvg' && typeof message.svg === 'string'
+		&& /^\s*<svg(?:\s|>)/u.test(message.svg)) {
+		return { type: 'exportSvg', svg: message.svg };
+	}
+	return undefined;
+}
+
+export async function executePanelCommand(
+	value: unknown,
+	actions: PanelCommandActions
+): Promise<PanelCommandResult> {
+	const command = toPanelCommand(value);
+	if (!command) {
+		return 'ignored';
+	}
+	if (command.type === 'copyMermaid') {
+		await actions.copyMermaid(command.mermaid);
+		return 'copied';
+	}
+	const uri = await actions.chooseSvgFile();
+	if (!uri) {
+		return 'cancelled';
+	}
+	await actions.writeFile(uri, Buffer.from(command.svg, 'utf8'));
+	return 'exported';
 }
 
 export class ChoreographyPanel implements vscode.Disposable {
@@ -41,6 +88,9 @@ export class ChoreographyPanel implements vscode.Disposable {
 			}
 		);
 		this.panel.webview.html = this.html(this.panel.webview);
+		this.panel.webview.onDidReceiveMessage(message => {
+			void this.handleCommand(message);
+		});
 		this.panel.onDidDispose(() => {
 			this.panel = undefined;
 			this.onDidDisposeEmitter.fire();
@@ -61,6 +111,31 @@ export class ChoreographyPanel implements vscode.Disposable {
 	dispose(): void {
 		this.onDidDisposeEmitter.dispose();
 		this.panel?.dispose();
+	}
+
+	private async handleCommand(message: unknown): Promise<void> {
+		const folder = vscode.workspace.workspaceFolders?.[0];
+		try {
+			const result = await executePanelCommand(message, {
+				copyMermaid: source => vscode.env.clipboard.writeText(source),
+				chooseSvgFile: () => vscode.window.showSaveDialog({
+					defaultUri: folder
+						? vscode.Uri.joinPath(folder.uri, 'choreography.svg')
+						: undefined,
+					filters: { 'SVG image': ['svg'] },
+					saveLabel: 'Export SVG',
+				}),
+				writeFile: (uri, content) => vscode.workspace.fs.writeFile(uri, content),
+			});
+			if (result === 'copied') {
+				void vscode.window.showInformationMessage('Mermaid source copied.');
+			} else if (result === 'exported') {
+				void vscode.window.showInformationMessage('Choreography diagram exported.');
+			}
+		} catch (error) {
+			void vscode.window.showErrorMessage('Unable to complete choreography diagram action: '
+				+ (error instanceof Error ? error.message : String(error)));
+		}
 	}
 
 	private html(webview: vscode.Webview): string {
@@ -93,6 +168,53 @@ export class ChoreographyPanel implements vscode.Disposable {
 				flex-direction: column;
 				overflow: hidden;
 			}
+			#toolbar {
+				box-sizing: border-box;
+				display: flex;
+				align-items: center;
+				flex-wrap: wrap;
+				gap: 6px 12px;
+				padding: 8px 12px;
+				background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
+				border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
+			}
+			#toolbar[hidden] {
+				display: none;
+			}
+			.toolbar-group {
+				display: flex;
+				align-items: center;
+				gap: 6px;
+			}
+			button {
+				min-height: 26px;
+				padding: 3px 9px;
+				color: var(--vscode-button-secondaryForeground, var(--vscode-button-foreground));
+				background: var(--vscode-button-secondaryBackground, var(--vscode-button-background));
+				border: 1px solid var(--vscode-button-border, transparent);
+				border-radius: 2px;
+				font: inherit;
+				cursor: pointer;
+			}
+			button:hover:not(:disabled) {
+				background: var(--vscode-button-secondaryHoverBackground, var(--vscode-button-hoverBackground));
+			}
+			button:focus-visible {
+				outline: 1px solid var(--vscode-focusBorder);
+				outline-offset: 2px;
+			}
+			button:disabled {
+				opacity: 0.5;
+				cursor: default;
+			}
+			#zoom-value {
+				box-sizing: border-box;
+				min-width: 52px;
+				padding: 0 4px;
+				color: var(--vscode-descriptionForeground);
+				text-align: center;
+				font-variant-numeric: tabular-nums;
+			}
 			#status {
 				flex: none;
 				padding: 12px 16px;
@@ -118,14 +240,54 @@ export class ChoreographyPanel implements vscode.Disposable {
 		</style>
 	</head>
 	<body>
-		<div id="status">Select a Choral choreography to visualize.</div>
-		<div id="diagram" aria-live="polite"></div>
+		<div id="toolbar" role="toolbar" aria-label="Choreography diagram controls" hidden>
+			<div class="toolbar-group" role="group" aria-label="Copy and export">
+				<button id="copy-source" type="button">Copy Mermaid</button>
+				<button id="export-svg" type="button">Export SVG</button>
+			</div>
+			<div class="toolbar-group" role="group" aria-label="Zoom controls">
+				<button id="fit-diagram" type="button">Fit</button>
+				<button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+				<output id="zoom-value" aria-live="polite">100%</output>
+				<button id="zoom-in" type="button" aria-label="Zoom in">+</button>
+				<button id="reset-zoom" type="button">Reset</button>
+			</div>
+		</div>
+		<div id="status" role="status" aria-live="polite">Select a Choral choreography to visualize.</div>
+		<div id="diagram" tabindex="0" aria-label="Choreography sequence diagram"></div>
 		<script nonce="${nonce}" type="module">
 			import mermaid from '${mermaidUri}';
 
+			const vscodeApi = acquireVsCodeApi();
+			const toolbar = document.getElementById('toolbar');
 			const status = document.getElementById('status');
 			const container = document.getElementById('diagram');
+			const copyButton = document.getElementById('copy-source');
+			const exportButton = document.getElementById('export-svg');
+			const fitButton = document.getElementById('fit-diagram');
+			const zoomOutButton = document.getElementById('zoom-out');
+			const zoomInButton = document.getElementById('zoom-in');
+			const resetButton = document.getElementById('reset-zoom');
+			const zoomValue = document.getElementById('zoom-value');
+			const minimumZoom = 0.25;
+			const maximumZoom = 3;
+			const zoomFactor = 1.2;
+			const exportedThemeVariables = [
+				'--vscode-foreground',
+				'--vscode-editor-foreground',
+				'--vscode-editor-background',
+				'--vscode-editorWidget-border',
+				'--vscode-editorWidget-background',
+				'--vscode-editorWidget-foreground',
+				'--vscode-descriptionForeground',
+				'--vscode-editor-inactiveSelectionBackground',
+			];
 			let renderVersion = 0;
+			let currentMermaid;
+			let naturalWidth = 1;
+			let naturalHeight = 1;
+			let zoom = 1;
+			let fitMode = false;
 			mermaid.initialize({
 				startOnLoad: false,
 				securityLevel: 'strict',
@@ -153,11 +315,112 @@ export class ChoreographyPanel implements vscode.Disposable {
 				},
 			});
 
+			function renderedSvg() {
+				return container.querySelector('svg');
+			}
+
+			function setControlsAvailable(available) {
+				toolbar.hidden = !available;
+				for (const button of [copyButton, exportButton, fitButton, zoomOutButton,
+					zoomInButton, resetButton]) {
+					button.disabled = !available;
+				}
+			}
+
+			function updateZoomControls() {
+				zoomValue.textContent = Math.round(zoom * 100) + '%';
+				zoomOutButton.disabled = zoom <= minimumZoom;
+				zoomInButton.disabled = zoom >= maximumZoom;
+			}
+
+			function applyZoom(value, keepFitMode = false) {
+				const svg = renderedSvg();
+				if (!svg) {
+					return;
+				}
+				zoom = Math.min(maximumZoom, Math.max(minimumZoom, value));
+				fitMode = keepFitMode;
+				svg.style.width = naturalWidth * zoom + 'px';
+				svg.style.height = naturalHeight * zoom + 'px';
+				updateZoomControls();
+			}
+
+			function fitDiagram() {
+				const horizontalPadding = parseFloat(getComputedStyle(container).paddingLeft)
+					+ parseFloat(getComputedStyle(container).paddingRight);
+				const verticalPadding = parseFloat(getComputedStyle(container).paddingTop)
+					+ parseFloat(getComputedStyle(container).paddingBottom);
+				const availableWidth = Math.max(1, container.clientWidth - horizontalPadding);
+				const availableHeight = Math.max(1, container.clientHeight - verticalPadding);
+				applyZoom(Math.min(
+					availableWidth / naturalWidth,
+					availableHeight / naturalHeight
+				), true);
+			}
+
+			function measureNaturalSize(svg) {
+				const viewBox = svg.viewBox && svg.viewBox.baseVal;
+				if (viewBox && viewBox.width > 0 && viewBox.height > 0) {
+					naturalWidth = viewBox.width;
+					naturalHeight = viewBox.height;
+					return;
+				}
+				const bounds = svg.getBBox();
+				naturalWidth = Math.max(1, bounds.width);
+				naturalHeight = Math.max(1, bounds.height);
+			}
+
+			function standaloneSvg() {
+				const svg = renderedSvg();
+				if (!svg) {
+					return undefined;
+				}
+				const clone = svg.cloneNode(true);
+				clone.setAttribute('xmlns', 'http://www.w3.org/2000/svg');
+				clone.setAttribute('width', String(naturalWidth));
+				clone.setAttribute('height', String(naturalHeight));
+				clone.style.width = '';
+				clone.style.height = '';
+				const theme = getComputedStyle(document.documentElement);
+				for (const variable of exportedThemeVariables) {
+					const value = theme.getPropertyValue(variable).trim();
+					if (value) {
+						clone.style.setProperty(variable, value);
+					}
+				}
+				return new XMLSerializer().serializeToString(clone);
+			}
+
+			copyButton.addEventListener('click', () => {
+				if (typeof currentMermaid === 'string') {
+					vscodeApi.postMessage({ type: 'copyMermaid', mermaid: currentMermaid });
+				}
+			});
+			exportButton.addEventListener('click', () => {
+				const svg = standaloneSvg();
+				if (svg) {
+					vscodeApi.postMessage({ type: 'exportSvg', svg });
+				}
+			});
+			fitButton.addEventListener('click', fitDiagram);
+			zoomOutButton.addEventListener('click', () => applyZoom(zoom / zoomFactor));
+			zoomInButton.addEventListener('click', () => applyZoom(zoom * zoomFactor));
+			resetButton.addEventListener('click', () => applyZoom(1));
+			window.addEventListener('resize', () => {
+				if (fitMode) {
+					fitDiagram();
+				}
+			});
+
 			window.addEventListener('message', async (event) => {
 				const message = event.data;
 				if (message.type === 'empty' || message.type === 'error') {
 					renderVersion++;
+					currentMermaid = undefined;
+					fitMode = false;
 					container.replaceChildren();
+					container.removeAttribute('aria-busy');
+					setControlsAvailable(false);
 					status.textContent = message.message;
 					status.className = message.type === 'error' ? 'error' : '';
 					return;
@@ -169,6 +432,8 @@ export class ChoreographyPanel implements vscode.Disposable {
 				status.textContent = message.staleMessage || message.title;
 				status.className = message.staleMessage ? 'error' : '';
 				const currentRender = ++renderVersion;
+				container.setAttribute('aria-busy', 'true');
+				setControlsAvailable(false);
 				try {
 					const result = await mermaid.render(
 						'choral-diagram-' + currentRender,
@@ -178,11 +443,24 @@ export class ChoreographyPanel implements vscode.Disposable {
 						return;
 					}
 					container.innerHTML = result.svg;
+					const svg = renderedSvg();
+					if (!svg) {
+						throw new Error('Mermaid did not return an SVG element.');
+					}
+					measureNaturalSize(svg);
+					currentMermaid = message.mermaid;
+					applyZoom(1);
+					setControlsAvailable(true);
+					container.removeAttribute('aria-busy');
 				} catch (error) {
 					if (currentRender !== renderVersion) {
 						return;
 					}
+					currentMermaid = undefined;
+					fitMode = false;
 					container.replaceChildren();
+					container.removeAttribute('aria-busy');
+					setControlsAvailable(false);
 					status.textContent = 'Unable to render choreography: '
 						+ (error instanceof Error ? error.message : String(error));
 					status.className = 'error';
