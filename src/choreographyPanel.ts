@@ -80,13 +80,21 @@ export class ChoreographyPanel implements vscode.Disposable {
 		<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-${nonce}';">
 		<title>Choral Choreography</title>
 		<style>
+			html,
+			body {
+				height: 100%;
+			}
 			body {
 				color: var(--vscode-foreground);
 				background: var(--vscode-editor-background);
 				font-family: var(--vscode-font-family);
 				margin: 0;
+				display: flex;
+				flex-direction: column;
+				overflow: hidden;
 			}
 			#status {
+				flex: none;
 				padding: 12px 16px;
 				color: var(--vscode-descriptionForeground);
 			}
@@ -94,11 +102,18 @@ export class ChoreographyPanel implements vscode.Disposable {
 				color: var(--vscode-errorForeground);
 			}
 			#diagram {
-				min-width: max-content;
+				box-sizing: border-box;
+				flex: 1;
+				min-height: 0;
+				overflow: auto;
 				padding: 8px 16px 24px;
 			}
 			#diagram svg {
+				display: block;
+				width: auto;
+				height: auto;
 				max-width: none;
+				max-height: none;
 			}
 		</style>
 	</head>
@@ -110,10 +125,14 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 			const status = document.getElementById('status');
 			const container = document.getElementById('diagram');
+			let renderVersion = 0;
 			mermaid.initialize({
 				startOnLoad: false,
 				securityLevel: 'strict',
 				theme: 'base',
+				sequence: {
+					useMaxWidth: false,
+				},
 				themeVariables: {
 					actorBorder: 'var(--vscode-editorWidget-border, var(--vscode-editor-foreground))',
 					actorBkg: 'var(--vscode-editorWidget-background, var(--vscode-editor-background))',
@@ -137,6 +156,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 			window.addEventListener('message', async (event) => {
 				const message = event.data;
 				if (message.type === 'empty' || message.type === 'error') {
+					renderVersion++;
 					container.replaceChildren();
 					status.textContent = message.message;
 					status.className = message.type === 'error' ? 'error' : '';
@@ -148,10 +168,20 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 				status.textContent = message.staleMessage || message.title;
 				status.className = message.staleMessage ? 'error' : '';
+				const currentRender = ++renderVersion;
 				try {
-					const result = await mermaid.render('choral-diagram', message.mermaid);
+					const result = await mermaid.render(
+						'choral-diagram-' + currentRender,
+						message.mermaid
+					);
+					if (currentRender !== renderVersion) {
+						return;
+					}
 					container.innerHTML = result.svg;
 				} catch (error) {
+					if (currentRender !== renderVersion) {
+						return;
+					}
 					container.replaceChildren();
 					status.textContent = 'Unable to render choreography: '
 						+ (error instanceof Error ? error.message : String(error));
