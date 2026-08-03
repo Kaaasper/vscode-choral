@@ -38,3 +38,16 @@ window "the debugger window". There are three places to look for logs:
    is controlled in the host window by adjusting the VS Code setting
    `choral.trace.server`. You might need to restart your IDE for these
    settings to take effect.
+
+### Choreography diagram smoke test
+
+The smoke test launches a real Choral language-server JAR, opens a small
+choreography through LSP, requests its diagram, and parses the returned Mermaid.
+Pass the JAR explicitly so the test cannot accidentally use VS Code's cached copy:
+
+```sh
+npm run test:choreography-smoke -- --jar /absolute/path/to/choral-standalone.jar
+```
+
+For CI, the same path can be supplied through `CHORAL_LSP_JAR`. Build the JAR
+with JDK 17 before running the test.

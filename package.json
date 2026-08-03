@@ -124,6 +124,7 @@
         "watch": "tsc -watch -p ./",
         "lint": "eslint src",
         "test": "npm run compile && vscode-test",
+        "test:choreography-smoke": "npm run compile && node out/test/choreographySmoke.js",
         "package": "vsce package",
         "publish": "vsce publish"
     },
@@ -143,6 +144,7 @@
         "@vscode/test-electron": "^2.5.2",
         "@vscode/vsce": "^2.19.0",
         "eslint": "^9.34.0",
-        "typescript": "^5.9.2"
+        "typescript": "^5.9.2",
+        "vscode-jsonrpc": "8.2.0"
     }
 }
