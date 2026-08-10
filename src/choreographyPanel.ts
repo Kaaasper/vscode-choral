@@ -237,6 +237,10 @@ export class ChoreographyPanel implements vscode.Disposable {
 				max-width: none;
 				max-height: none;
 			}
+			#diagram svg rect.rect {
+				stroke: var(--vscode-editorWidget-border, var(--vscode-editor-foreground));
+				stroke-width: 1px;
+			}
 		</style>
 	</head>
 	<body>
