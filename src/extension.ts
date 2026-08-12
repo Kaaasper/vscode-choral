@@ -21,18 +21,6 @@ interface ChoreographyDiagramParams {
 	position: vscode.Position;
 }
 
-interface ChoreographyDiagramError {
-	error: { message: string; code?: string };
-}
-
-function getDiagramError(value: unknown): string | undefined {
-	if (typeof value !== 'object' || value === null || !('error' in value)) {
-		return undefined;
-	}
-	const error = (value as ChoreographyDiagramError).error;
-	return typeof error?.message === 'string' ? error.message : undefined;
-}
-
 // This method is called when extension is activated.
 // Extension is activated the very first time the command is executed
 export async function activate(context: vscode.ExtensionContext) {
@@ -106,22 +94,12 @@ export async function activate(context: vscode.ExtensionContext) {
 				position: editor.selection.active,
 			};
 			try {
-				const result = await client.sendRequest<unknown>(DIAGRAM_REQUEST, params);
+				const result = await client.sendRequest<string>(DIAGRAM_REQUEST, params);
 				if (requestVersion !== refreshVersion || !panel.isVisible()) {
 					return;
 				}
-				if (typeof result === 'string') {
-					lastDiagram = result;
-					panel.show({ kind: 'diagram', mermaid: result });
-					return;
-				}
-				const error = getDiagramError(result)
-					?? 'The Choral language server returned an invalid choreography diagram response.';
-				if (lastDiagram) {
-					panel.show({ kind: 'diagram', mermaid: lastDiagram, staleMessage: error });
-				} else {
-					panel.show({ kind: 'error', message: error });
-				}
+				lastDiagram = result;
+				panel.show({ kind: 'diagram', mermaid: result });
 			} catch (error) {
 				if (requestVersion !== refreshVersion || !panel.isVisible()) {
 					return;
