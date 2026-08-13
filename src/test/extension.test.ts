@@ -10,6 +10,7 @@ import {
 	toPanelCommand,
 	toPanelMessage,
 } from '../choreographyPanel';
+import { diagramPanelState } from '../choreography';
 
 
 describe('Choral Extension Test Suite', () => {
@@ -24,6 +25,22 @@ describe('Choral Extension Test Suite', () => {
 });
 
 describe('Choreography diagram response', () => {
+	it('maps a missing diagram to the empty panel state', () => {
+		assert.deepStrictEqual(diagramPanelState(null), {
+			kind: 'empty',
+			message: 'Select a Choral choreography to visualize.',
+		});
+	});
+
+	it('maps Mermaid source to a diagram panel state without changing it', () => {
+		const source = 'sequenceDiagram\np_A->>p_B: value';
+
+		assert.deepStrictEqual(diagramPanelState(source), {
+			kind: 'diagram',
+			mermaid: source,
+		});
+	});
+
 	it('passes the compiler-rendered Mermaid source to the panel unchanged', () => {
 		const source = 'sequenceDiagram\np_Buyer->>p_Seller: order: {Item};';
 

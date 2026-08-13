@@ -10,16 +10,10 @@ import {
 	ServerOptions,
 	Trace,
 } from 'vscode-languageclient/node';
-import { ChoreographyPanel } from './choreographyPanel';
+import { registerChoreographyVisualization } from './choreography';
 import { findOrInstallChoral } from './installer';
 
 let client: LanguageClient;
-const DIAGRAM_REQUEST = 'choral/choreographyDiagram';
-
-interface ChoreographyDiagramParams {
-	textDocument: { uri: string };
-	position: vscode.Position;
-}
 
 // This method is called when extension is activated.
 // Extension is activated the very first time the command is executed
@@ -65,89 +59,7 @@ export async function activate(context: vscode.ExtensionContext) {
 			}
 		);
 
-		const panel = new ChoreographyPanel(context.extensionUri);
-		let refreshVersion = 0;
-		let selectionTimer: ReturnType<typeof setTimeout> | undefined;
-
-		const isChoralEditor = (editor: vscode.TextEditor | undefined): editor is vscode.TextEditor =>
-			editor?.document.languageId === 'choral';
-
-		const refresh = async (): Promise<void> => {
-			if (!panel.isVisible()) {
-				return;
-			}
-			const editor = vscode.window.activeTextEditor;
-			// Focusing the choreography webview temporarily removes the active text editor.
-			// Keep the last diagram visible so its controls remain usable.
-			if (!editor) {
-				return;
-			}
-			if (!isChoralEditor(editor)) {
-				panel.show({ kind: 'empty', message: 'Select a Choral choreography to visualize.' });
-				return;
-			}
-
-			const requestVersion = ++refreshVersion;
-			const params: ChoreographyDiagramParams = {
-				textDocument: { uri: editor.document.uri.toString() },
-				position: editor.selection.active,
-			};
-			try {
-				const result = await client.sendRequest<string | null>(DIAGRAM_REQUEST, params);
-				if (requestVersion !== refreshVersion || !panel.isVisible()) {
-					return;
-				}
-				if (result === null) {
-					panel.show({ kind: 'empty', message: 'Select a Choral choreography to visualize.' });
-				} else {
-					panel.show({ kind: 'diagram', mermaid: result });
-				}
-			} catch (error) {
-				if (requestVersion !== refreshVersion || !panel.isVisible()) {
-					return;
-				}
-				const errorMessage = error instanceof Error ? error.message : String(error);
-				const message = `Unable to analyze choreography: ${errorMessage}`;
-				panel.show({ kind: 'error', message });
-			}
-		};
-
-		const scheduleRefresh = (): void => {
-			if (selectionTimer) {
-				clearTimeout(selectionTimer);
-			}
-			selectionTimer = setTimeout(() => {
-				void refresh();
-			}, 150);
-		};
-
-		context.subscriptions.push(panel);
-		context.subscriptions.push(panel.onDidDispose(() => {
-			if (selectionTimer) {
-				clearTimeout(selectionTimer);
-				selectionTimer = undefined;
-			}
-		}));
-		context.subscriptions.push(vscode.commands.registerCommand(
-			'choral.showChoreography',
-			async () => {
-				panel.reveal();
-				await refresh();
-			}
-		));
-		context.subscriptions.push(vscode.window.onDidChangeActiveTextEditor(() => {
-			void refresh();
-		}));
-		context.subscriptions.push(vscode.workspace.onDidSaveTextDocument(document => {
-			if (document.languageId === 'choral') {
-				void refresh();
-			}
-		}));
-		context.subscriptions.push(vscode.window.onDidChangeTextEditorSelection(event => {
-			if (event.textEditor === vscode.window.activeTextEditor && isChoralEditor(event.textEditor)) {
-				scheduleRefresh();
-			}
-		}));
+		registerChoreographyVisualization(context, client);
 
 		context.subscriptions.push(
 			vscode.commands.registerCommand(
