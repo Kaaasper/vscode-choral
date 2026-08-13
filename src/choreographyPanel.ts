@@ -3,7 +3,7 @@ import * as vscode from 'vscode';
 
 export type PanelState =
 	| { kind: 'empty'; message: string }
-	| { kind: 'diagram'; mermaid: string; staleMessage?: string }
+	| { kind: 'diagram'; mermaid: string }
 	| { kind: 'error'; message: string };
 
 export type PanelCommand =
@@ -24,7 +24,6 @@ export function toPanelMessage(state: PanelState): object {
 			type: 'diagram',
 			mermaid: state.mermaid,
 			title: 'Choral Choreography',
-			staleMessage: state.staleMessage,
 		};
 	}
 	return { type: state.kind, message: state.message };
@@ -433,8 +432,8 @@ export class ChoreographyPanel implements vscode.Disposable {
 					return;
 				}
 
-				status.textContent = message.staleMessage || message.title;
-				status.className = message.staleMessage ? 'error' : '';
+				status.textContent = message.title;
+				status.className = '';
 				const currentRender = ++renderVersion;
 				container.setAttribute('aria-busy', 'true');
 				setControlsAvailable(false);

@@ -31,7 +31,6 @@ describe('Choreography diagram response', () => {
 			type: 'diagram',
 			mermaid: source,
 			title: 'Choral Choreography',
-			staleMessage: undefined,
 		});
 	});
 });

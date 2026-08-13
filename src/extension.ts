@@ -68,7 +68,6 @@ export async function activate(context: vscode.ExtensionContext) {
 		const panel = new ChoreographyPanel(context.extensionUri);
 		let refreshVersion = 0;
 		let selectionTimer: ReturnType<typeof setTimeout> | undefined;
-		let lastDiagram: string | undefined;
 
 		const isChoralEditor = (editor: vscode.TextEditor | undefined): editor is vscode.TextEditor =>
 			editor?.document.languageId === 'choral';
@@ -94,23 +93,22 @@ export async function activate(context: vscode.ExtensionContext) {
 				position: editor.selection.active,
 			};
 			try {
-				const result = await client.sendRequest<string>(DIAGRAM_REQUEST, params);
+				const result = await client.sendRequest<string | null>(DIAGRAM_REQUEST, params);
 				if (requestVersion !== refreshVersion || !panel.isVisible()) {
 					return;
 				}
-				lastDiagram = result;
-				panel.show({ kind: 'diagram', mermaid: result });
+				if (result === null) {
+					panel.show({ kind: 'empty', message: 'Select a Choral choreography to visualize.' });
+				} else {
+					panel.show({ kind: 'diagram', mermaid: result });
+				}
 			} catch (error) {
 				if (requestVersion !== refreshVersion || !panel.isVisible()) {
 					return;
 				}
 				const errorMessage = error instanceof Error ? error.message : String(error);
 				const message = `Unable to analyze choreography: ${errorMessage}`;
-				if (lastDiagram) {
-					panel.show({ kind: 'diagram', mermaid: lastDiagram, staleMessage: message });
-				} else {
-					panel.show({ kind: 'error', message });
-				}
+				panel.show({ kind: 'error', message });
 			}
 		};
 
