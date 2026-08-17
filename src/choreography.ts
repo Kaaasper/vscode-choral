@@ -4,9 +4,19 @@ import { ChoreographyPanel, PanelState } from './choreographyPanel';
 
 const DIAGRAM_REQUEST = 'choral/choreographyDiagram';
 
-interface ChoreographyDiagramParams {
+interface ChoreographyLocation {
 	textDocument: { uri: string };
 	position: vscode.Position;
+}
+
+interface ChoreographyDiagramParams extends ChoreographyLocation {
+	helperExpansionDepth: number;
+}
+
+export function choreographyDiagramParams(
+	location: ChoreographyLocation, helperExpansionDepth: number
+): ChoreographyDiagramParams {
+	return { ...location, helperExpansionDepth };
 }
 
 export function diagramPanelState(
@@ -24,36 +34,46 @@ export function registerChoreographyVisualization(
 	const panel = new ChoreographyPanel(context.extensionUri);
 	let refreshVersion = 0;
 	let selectionTimer: ReturnType<typeof setTimeout> | undefined;
+	let helperExpansionDepth = 0;
+	let lastLocation: ChoreographyLocation | undefined;
 
 	const isChoralEditor = (editor: vscode.TextEditor | undefined): editor is vscode.TextEditor =>
 		editor?.document.languageId === 'choral';
 
-	const refresh = async (): Promise<void> => {
+	const refresh = async (location?: ChoreographyLocation): Promise<void> => {
 		if (!panel.isVisible()) {
 			return;
 		}
-		const editor = vscode.window.activeTextEditor;
-		// Focusing the choreography webview temporarily removes the active text editor.
-		// Keep the last diagram visible so its controls remain usable.
-		if (!editor) {
-			return;
-		}
-		if (!isChoralEditor(editor)) {
-			panel.show({ kind: 'empty', message: 'Select a Choral choreography to visualize.' });
-			return;
+		if (!location) {
+			const editor = vscode.window.activeTextEditor;
+			// Focusing the choreography webview temporarily removes the active text editor.
+			// Keep the last diagram visible so its controls remain usable.
+			if (!editor) {
+				return;
+			}
+			if (!isChoralEditor(editor)) {
+				lastLocation = undefined;
+				panel.show({ kind: 'empty', message: 'Select a Choral choreography to visualize.' });
+				return;
+			}
+			location = {
+				textDocument: { uri: editor.document.uri.toString() },
+				position: editor.selection.active,
+			};
+			lastLocation = location;
 		}
 
 		const requestVersion = ++refreshVersion;
-		const params: ChoreographyDiagramParams = {
-			textDocument: { uri: editor.document.uri.toString() },
-			position: editor.selection.active,
-		};
+		const requestedHelperExpansionDepth = helperExpansionDepth;
+		const params = choreographyDiagramParams(
+			location, requestedHelperExpansionDepth
+		);
 		try {
 			const result = await client.sendRequest<string | null>(DIAGRAM_REQUEST, params);
 			if (requestVersion !== refreshVersion || !panel.isVisible()) {
 				return;
 			}
-			panel.show(diagramPanelState(result));
+			panel.show(diagramPanelState(result, requestedHelperExpansionDepth));
 		} catch (error) {
 			if (requestVersion !== refreshVersion || !panel.isVisible()) {
 				return;
@@ -76,6 +96,13 @@ export function registerChoreographyVisualization(
 	};
 
 	context.subscriptions.push(panel);
+	context.subscriptions.push(panel.onDidChangeHelperExpansionDepth(depth => {
+		if (depth === helperExpansionDepth) {
+			return;
+		}
+		helperExpansionDepth = depth;
+		void refresh(lastLocation);
+	}));
 	context.subscriptions.push(panel.onDidDispose(() => {
 		if (selectionTimer) {
 			clearTimeout(selectionTimer);

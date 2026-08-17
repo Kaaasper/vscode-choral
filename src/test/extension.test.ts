@@ -10,7 +10,7 @@ import {
 	toPanelCommand,
 	toPanelMessage,
 } from '../choreographyPanel';
-import { diagramPanelState } from '../choreography';
+import { choreographyDiagramParams, diagramPanelState } from '../choreography';
 
 
 describe('Choral Extension Test Suite', () => {
@@ -25,6 +25,19 @@ describe('Choral Extension Test Suite', () => {
 });
 
 describe('Choreography diagram response', () => {
+	it('includes helper expansion depth in diagram requests', () => {
+		const position = new vscode.Position(4, 7);
+
+		assert.deepStrictEqual(choreographyDiagramParams({
+			textDocument: { uri: 'file:///Example.ch' },
+			position,
+		}, 3), {
+			textDocument: { uri: 'file:///Example.ch' },
+			position,
+			helperExpansionDepth: 3,
+		});
+	});
+
 	it('maps a missing diagram to the empty panel state', () => {
 		assert.deepStrictEqual(diagramPanelState(null), {
 			kind: 'empty',
