@@ -268,10 +268,6 @@ export class ChoreographyPanel implements vscode.Disposable {
 				max-width: none;
 				max-height: none;
 			}
-			#diagram svg rect.rect {
-				stroke: var(--vscode-editorWidget-border, var(--vscode-editor-foreground));
-				stroke-width: 1px;
-			}
 		</style>
 	</head>
 	<body>
@@ -320,6 +316,8 @@ export class ChoreographyPanel implements vscode.Disposable {
 				'--vscode-editorWidget-border',
 				'--vscode-editorWidget-background',
 				'--vscode-editorWidget-foreground',
+				'--vscode-focusBorder',
+				'--vscode-charts-blue',
 				'--vscode-descriptionForeground',
 				'--vscode-editor-inactiveSelectionBackground',
 			];
@@ -334,6 +332,9 @@ export class ChoreographyPanel implements vscode.Disposable {
 				startOnLoad: false,
 				securityLevel: 'strict',
 				theme: 'base',
+				themeCSS: '.rect { stroke: var(--vscode-charts-blue, '
+					+ 'var(--vscode-focusBorder, var(--vscode-editorWidget-border))) !important; '
+					+ 'stroke-width: 1px; }',
 				sequence: {
 					useMaxWidth: false,
 				},
