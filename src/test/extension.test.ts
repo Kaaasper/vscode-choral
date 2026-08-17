@@ -77,10 +77,13 @@ describe('Choreography panel commands', () => {
 		assert.deepStrictEqual(toPanelCommand({
 			type: 'setHelperExpansionDepth', helperExpansionDepth: 3,
 		}), { type: 'setHelperExpansionDepth', helperExpansionDepth: 3 });
+		assert.deepStrictEqual(toPanelCommand({
+			type: 'setHelperExpansionDepth', helperExpansionDepth: 2_147_483_647,
+		}), { type: 'setHelperExpansionDepth', helperExpansionDepth: 2_147_483_647 });
 	});
 
 	it('rejects invalid helper expansion depths', () => {
-		for (const helperExpansionDepth of [-1, 1.5, '2', undefined]) {
+		for (const helperExpansionDepth of [-1, 1.5, 2_147_483_648, '2', undefined]) {
 			assert.strictEqual(toPanelCommand({
 				type: 'setHelperExpansionDepth', helperExpansionDepth,
 			}), undefined);

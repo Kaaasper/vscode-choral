@@ -1,6 +1,8 @@
 import * as crypto from 'crypto';
 import * as vscode from 'vscode';
 
+const MAXIMUM_HELPER_EXPANSION_DEPTH = 2_147_483_647;
+
 export type PanelState =
 	| { kind: 'empty'; message: string }
 	| { kind: 'diagram'; mermaid: string; helperExpansionDepth: number }
@@ -46,8 +48,9 @@ export function toPanelCommand(value: unknown): PanelCommand | undefined {
 	}
 	if (message.type === 'setHelperExpansionDepth'
 		&& typeof message.helperExpansionDepth === 'number'
-		&& Number.isInteger(message.helperExpansionDepth)
-		&& message.helperExpansionDepth >= 0) {
+		&& Number.isSafeInteger(message.helperExpansionDepth)
+		&& message.helperExpansionDepth >= 0
+		&& message.helperExpansionDepth <= MAXIMUM_HELPER_EXPANSION_DEPTH) {
 		return {
 			type: 'setHelperExpansionDepth',
 			helperExpansionDepth: message.helperExpansionDepth,
@@ -200,9 +203,6 @@ export class ChoreographyPanel implements vscode.Disposable {
 				background: var(--vscode-editorWidget-background, var(--vscode-editor-background));
 				border-bottom: 1px solid var(--vscode-editorWidget-border, transparent);
 			}
-			#toolbar[hidden] {
-				display: none;
-			}
 			.toolbar-group {
 				display: flex;
 				align-items: center;
@@ -275,21 +275,22 @@ export class ChoreographyPanel implements vscode.Disposable {
 		</style>
 	</head>
 	<body>
-		<div id="toolbar" role="toolbar" aria-label="Choreography diagram controls" hidden>
+		<div id="toolbar" role="toolbar" aria-label="Choreography diagram controls">
 			<div class="toolbar-group" role="group" aria-label="Copy and export">
-				<button id="copy-source" type="button">Copy Mermaid</button>
-				<button id="export-svg" type="button">Export SVG</button>
+				<button id="copy-source" type="button" disabled>Copy Mermaid</button>
+				<button id="export-svg" type="button" disabled>Export SVG</button>
 			</div>
 			<div class="toolbar-group" role="group" aria-label="Zoom controls">
-				<button id="fit-diagram" type="button">Fit</button>
-				<button id="zoom-out" type="button" aria-label="Zoom out">−</button>
+				<button id="fit-diagram" type="button" disabled>Fit</button>
+				<button id="zoom-out" type="button" aria-label="Zoom out" disabled>−</button>
 				<output id="zoom-value" aria-live="polite">100%</output>
-				<button id="zoom-in" type="button" aria-label="Zoom in">+</button>
-				<button id="reset-zoom" type="button">Reset</button>
+				<button id="zoom-in" type="button" aria-label="Zoom in" disabled>+</button>
+				<button id="reset-zoom" type="button" disabled>Reset</button>
 			</div>
 			<div class="toolbar-group" role="group" aria-label="Helper expansion">
 				<label for="helper-depth">Helper depth</label>
-				<input id="helper-depth" type="number" min="0" step="1" value="0">
+				<input id="helper-depth" type="number" min="0"
+					max="${MAXIMUM_HELPER_EXPANSION_DEPTH}" step="1" value="0">
 			</div>
 		</div>
 		<div id="status" role="status" aria-live="polite">Select a Choral choreography to visualize.</div>
@@ -298,7 +299,6 @@ export class ChoreographyPanel implements vscode.Disposable {
 			import mermaid from '${mermaidUri}';
 
 			const vscodeApi = acquireVsCodeApi();
-			const toolbar = document.getElementById('toolbar');
 			const status = document.getElementById('status');
 			const container = document.getElementById('diagram');
 			const copyButton = document.getElementById('copy-source');
@@ -312,6 +312,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 			const minimumZoom = 0.25;
 			const maximumZoom = 3;
 			const zoomFactor = 1.2;
+			const maximumHelperExpansionDepth = ${MAXIMUM_HELPER_EXPANSION_DEPTH};
 			const exportedThemeVariables = [
 				'--vscode-foreground',
 				'--vscode-editor-foreground',
@@ -360,10 +361,9 @@ export class ChoreographyPanel implements vscode.Disposable {
 				return container.querySelector('svg');
 			}
 
-			function setControlsAvailable(available) {
-				toolbar.hidden = !available;
+			function setDiagramControlsAvailable(available) {
 				for (const control of [copyButton, exportButton, fitButton, zoomOutButton,
-					zoomInButton, resetButton, helperDepthInput]) {
+					zoomInButton, resetButton]) {
 					control.disabled = !available;
 				}
 			}
@@ -449,7 +449,8 @@ export class ChoreographyPanel implements vscode.Disposable {
 			resetButton.addEventListener('click', () => applyZoom(1));
 			helperDepthInput.addEventListener('change', () => {
 				const value = Number(helperDepthInput.value);
-				if (helperDepthInput.value.trim() === '' || !Number.isInteger(value) || value < 0) {
+				if (helperDepthInput.value.trim() === '' || !Number.isSafeInteger(value)
+					|| value < 0 || value > maximumHelperExpansionDepth) {
 					helperDepthInput.value = String(helperExpansionDepth);
 					return;
 				}
@@ -473,7 +474,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 					fitMode = false;
 					container.replaceChildren();
 					container.removeAttribute('aria-busy');
-					setControlsAvailable(false);
+					setDiagramControlsAvailable(false);
 					status.textContent = message.message;
 					status.className = message.type === 'error' ? 'error' : '';
 					return;
@@ -484,14 +485,15 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 				status.textContent = message.title;
 				status.className = '';
-				if (Number.isInteger(message.helperExpansionDepth)
-					&& message.helperExpansionDepth >= 0) {
+				if (Number.isSafeInteger(message.helperExpansionDepth)
+					&& message.helperExpansionDepth >= 0
+					&& message.helperExpansionDepth <= maximumHelperExpansionDepth) {
 					helperExpansionDepth = message.helperExpansionDepth;
 					helperDepthInput.value = String(helperExpansionDepth);
 				}
 				const currentRender = ++renderVersion;
 				container.setAttribute('aria-busy', 'true');
-				setControlsAvailable(false);
+				setDiagramControlsAvailable(false);
 				try {
 					const result = await mermaid.render(
 						'choral-diagram-' + currentRender,
@@ -508,7 +510,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 					measureNaturalSize(svg);
 					currentMermaid = message.mermaid;
 					applyZoom(1);
-					setControlsAvailable(true);
+					setDiagramControlsAvailable(true);
 					container.removeAttribute('aria-busy');
 				} catch (error) {
 					if (currentRender !== renderVersion) {
@@ -518,7 +520,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 					fitMode = false;
 					container.replaceChildren();
 					container.removeAttribute('aria-busy');
-					setControlsAvailable(false);
+					setDiagramControlsAvailable(false);
 					status.textContent = 'Unable to render choreography: '
 						+ (error instanceof Error ? error.message : String(error));
 					status.className = 'error';
