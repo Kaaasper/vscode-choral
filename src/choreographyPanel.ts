@@ -509,7 +509,11 @@ export class ChoreographyPanel implements vscode.Disposable {
 					}
 					measureNaturalSize(svg);
 					currentMermaid = message.mermaid;
-					applyZoom(1);
+					if (fitMode) {
+						fitDiagram();
+					} else {
+						applyZoom(zoom);
+					}
 					setDiagramControlsAvailable(true);
 					container.removeAttribute('aria-busy');
 				} catch (error) {
