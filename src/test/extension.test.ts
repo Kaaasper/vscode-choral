@@ -38,21 +38,55 @@ describe('Choreography diagram response', () => {
 		assert.deepStrictEqual(diagramPanelState(source), {
 			kind: 'diagram',
 			mermaid: source,
+			helperExpansionDepth: 0,
 		});
 	});
 
 	it('passes the compiler-rendered Mermaid source to the panel unchanged', () => {
 		const source = 'sequenceDiagram\np_Buyer->>p_Seller: order: {Item};';
 
-		assert.deepStrictEqual(toPanelMessage({ kind: 'diagram', mermaid: source }), {
+		assert.deepStrictEqual(toPanelMessage({
+			kind: 'diagram', mermaid: source, helperExpansionDepth: 2,
+		}), {
 			type: 'diagram',
 			mermaid: source,
 			title: 'Choral Choreography',
+			helperExpansionDepth: 2,
 		});
 	});
 });
 
 describe('Choreography panel commands', () => {
+	it('accepts non-negative integer helper expansion depths', () => {
+		assert.deepStrictEqual(toPanelCommand({
+			type: 'setHelperExpansionDepth', helperExpansionDepth: 0,
+		}), { type: 'setHelperExpansionDepth', helperExpansionDepth: 0 });
+		assert.deepStrictEqual(toPanelCommand({
+			type: 'setHelperExpansionDepth', helperExpansionDepth: 3,
+		}), { type: 'setHelperExpansionDepth', helperExpansionDepth: 3 });
+	});
+
+	it('rejects invalid helper expansion depths', () => {
+		for (const helperExpansionDepth of [-1, 1.5, '2', undefined]) {
+			assert.strictEqual(toPanelCommand({
+				type: 'setHelperExpansionDepth', helperExpansionDepth,
+			}), undefined);
+		}
+	});
+
+	it('dispatches helper expansion depth changes', async () => {
+		let selectedDepth: number | undefined;
+		const result = await executePanelCommand(
+			{ type: 'setHelperExpansionDepth', helperExpansionDepth: 4 },
+			actions({
+				setHelperExpansionDepth: async depth => { selectedDepth = depth; },
+			})
+		);
+
+		assert.strictEqual(result, 'updated');
+		assert.strictEqual(selectedDepth, 4);
+	});
+
 	it('copies Mermaid source without modifying it', async () => {
 		const source = 'sequenceDiagram\n  p_A->>p_B: value: {exact};\n';
 		let copied: string | undefined;
@@ -110,6 +144,7 @@ describe('Choreography panel commands', () => {
 function actions(overrides: Partial<PanelCommandActions> = {}): PanelCommandActions {
 	return {
 		copyMermaid: async () => undefined,
+		setHelperExpansionDepth: async () => undefined,
 		chooseSvgFile: async () => undefined,
 		writeFile: async () => undefined,
 		...overrides,

@@ -9,10 +9,12 @@ interface ChoreographyDiagramParams {
 	position: vscode.Position;
 }
 
-export function diagramPanelState(result: string | null): PanelState {
+export function diagramPanelState(
+	result: string | null, helperExpansionDepth = 0
+): PanelState {
 	return result === null
 		? { kind: 'empty', message: 'Select a Choral choreography to visualize.' }
-		: { kind: 'diagram', mermaid: result };
+		: { kind: 'diagram', mermaid: result, helperExpansionDepth };
 }
 
 export function registerChoreographyVisualization(

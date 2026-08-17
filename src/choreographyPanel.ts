@@ -3,20 +3,22 @@ import * as vscode from 'vscode';
 
 export type PanelState =
 	| { kind: 'empty'; message: string }
-	| { kind: 'diagram'; mermaid: string }
+	| { kind: 'diagram'; mermaid: string; helperExpansionDepth: number }
 	| { kind: 'error'; message: string };
 
 export type PanelCommand =
 	| { type: 'copyMermaid'; mermaid: string }
-	| { type: 'exportSvg'; svg: string };
+	| { type: 'exportSvg'; svg: string }
+	| { type: 'setHelperExpansionDepth'; helperExpansionDepth: number };
 
 export interface PanelCommandActions {
 	copyMermaid(source: string): Thenable<void>;
+	setHelperExpansionDepth(depth: number): Thenable<void>;
 	chooseSvgFile(): Thenable<vscode.Uri | undefined>;
 	writeFile(uri: vscode.Uri, content: Uint8Array): Thenable<void>;
 }
 
-export type PanelCommandResult = 'copied' | 'exported' | 'cancelled' | 'ignored';
+export type PanelCommandResult = 'copied' | 'exported' | 'updated' | 'cancelled' | 'ignored';
 
 export function toPanelMessage(state: PanelState): object {
 	if (state.kind === 'diagram') {
@@ -24,6 +26,7 @@ export function toPanelMessage(state: PanelState): object {
 			type: 'diagram',
 			mermaid: state.mermaid,
 			title: 'Choral Choreography',
+			helperExpansionDepth: state.helperExpansionDepth,
 		};
 	}
 	return { type: state.kind, message: state.message };
@@ -41,6 +44,15 @@ export function toPanelCommand(value: unknown): PanelCommand | undefined {
 		&& /^\s*<svg(?:\s|>)/u.test(message.svg)) {
 		return { type: 'exportSvg', svg: message.svg };
 	}
+	if (message.type === 'setHelperExpansionDepth'
+		&& typeof message.helperExpansionDepth === 'number'
+		&& Number.isInteger(message.helperExpansionDepth)
+		&& message.helperExpansionDepth >= 0) {
+		return {
+			type: 'setHelperExpansionDepth',
+			helperExpansionDepth: message.helperExpansionDepth,
+		};
+	}
 	return undefined;
 }
 
@@ -56,6 +68,10 @@ export async function executePanelCommand(
 		await actions.copyMermaid(command.mermaid);
 		return 'copied';
 	}
+	if (command.type === 'setHelperExpansionDepth') {
+		await actions.setHelperExpansionDepth(command.helperExpansionDepth);
+		return 'updated';
+	}
 	const uri = await actions.chooseSvgFile();
 	if (!uri) {
 		return 'cancelled';
@@ -67,7 +83,10 @@ export async function executePanelCommand(
 export class ChoreographyPanel implements vscode.Disposable {
 	private panel: vscode.WebviewPanel | undefined;
 	private readonly onDidDisposeEmitter = new vscode.EventEmitter<void>();
+	private readonly onDidChangeHelperExpansionDepthEmitter = new vscode.EventEmitter<number>();
 	readonly onDidDispose = this.onDidDisposeEmitter.event;
+	readonly onDidChangeHelperExpansionDepth =
+		this.onDidChangeHelperExpansionDepthEmitter.event;
 
 	constructor(private readonly extensionUri: vscode.Uri) { }
 
@@ -109,6 +128,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 	dispose(): void {
 		this.onDidDisposeEmitter.dispose();
+		this.onDidChangeHelperExpansionDepthEmitter.dispose();
 		this.panel?.dispose();
 	}
 
@@ -117,6 +137,9 @@ export class ChoreographyPanel implements vscode.Disposable {
 		try {
 			const result = await executePanelCommand(message, {
 				copyMermaid: source => vscode.env.clipboard.writeText(source),
+				setHelperExpansionDepth: async depth => {
+					this.onDidChangeHelperExpansionDepthEmitter.fire(depth);
+				},
 				chooseSvgFile: () => vscode.window.showSaveDialog({
 					defaultUri: folder
 						? vscode.Uri.joinPath(folder.uri, 'choreography.svg')
@@ -206,6 +229,15 @@ export class ChoreographyPanel implements vscode.Disposable {
 				opacity: 0.5;
 				cursor: default;
 			}
+			input[type="number"] {
+				box-sizing: border-box;
+				width: 4.5em;
+				padding: 3px 5px;
+				color: var(--vscode-input-foreground, var(--vscode-foreground));
+				background: var(--vscode-input-background, var(--vscode-editor-background));
+				border: 1px solid var(--vscode-input-border, var(--vscode-editorWidget-border));
+				font: inherit;
+			}
 			#zoom-value {
 				box-sizing: border-box;
 				min-width: 52px;
@@ -255,6 +287,10 @@ export class ChoreographyPanel implements vscode.Disposable {
 				<button id="zoom-in" type="button" aria-label="Zoom in">+</button>
 				<button id="reset-zoom" type="button">Reset</button>
 			</div>
+			<div class="toolbar-group" role="group" aria-label="Helper expansion">
+				<label for="helper-depth">Helper depth</label>
+				<input id="helper-depth" type="number" min="0" step="1" value="0">
+			</div>
 		</div>
 		<div id="status" role="status" aria-live="polite">Select a Choral choreography to visualize.</div>
 		<div id="diagram" tabindex="0" aria-label="Choreography sequence diagram"></div>
@@ -271,6 +307,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 			const zoomOutButton = document.getElementById('zoom-out');
 			const zoomInButton = document.getElementById('zoom-in');
 			const resetButton = document.getElementById('reset-zoom');
+			const helperDepthInput = document.getElementById('helper-depth');
 			const zoomValue = document.getElementById('zoom-value');
 			const minimumZoom = 0.25;
 			const maximumZoom = 3;
@@ -291,6 +328,7 @@ export class ChoreographyPanel implements vscode.Disposable {
 			let naturalHeight = 1;
 			let zoom = 1;
 			let fitMode = false;
+			let helperExpansionDepth = 0;
 			mermaid.initialize({
 				startOnLoad: false,
 				securityLevel: 'strict',
@@ -324,9 +362,9 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 			function setControlsAvailable(available) {
 				toolbar.hidden = !available;
-				for (const button of [copyButton, exportButton, fitButton, zoomOutButton,
-					zoomInButton, resetButton]) {
-					button.disabled = !available;
+				for (const control of [copyButton, exportButton, fitButton, zoomOutButton,
+					zoomInButton, resetButton, helperDepthInput]) {
+					control.disabled = !available;
 				}
 			}
 
@@ -409,6 +447,18 @@ export class ChoreographyPanel implements vscode.Disposable {
 			zoomOutButton.addEventListener('click', () => applyZoom(zoom / zoomFactor));
 			zoomInButton.addEventListener('click', () => applyZoom(zoom * zoomFactor));
 			resetButton.addEventListener('click', () => applyZoom(1));
+			helperDepthInput.addEventListener('change', () => {
+				const value = Number(helperDepthInput.value);
+				if (helperDepthInput.value.trim() === '' || !Number.isInteger(value) || value < 0) {
+					helperDepthInput.value = String(helperExpansionDepth);
+					return;
+				}
+				helperExpansionDepth = value;
+				vscodeApi.postMessage({
+					type: 'setHelperExpansionDepth',
+					helperExpansionDepth,
+				});
+			});
 			window.addEventListener('resize', () => {
 				if (fitMode) {
 					fitDiagram();
@@ -434,6 +484,11 @@ export class ChoreographyPanel implements vscode.Disposable {
 
 				status.textContent = message.title;
 				status.className = '';
+				if (Number.isInteger(message.helperExpansionDepth)
+					&& message.helperExpansionDepth >= 0) {
+					helperExpansionDepth = message.helperExpansionDepth;
+					helperDepthInput.value = String(helperExpansionDepth);
+				}
 				const currentRender = ++renderVersion;
 				container.setAttribute('aria-busy', 'true');
 				setControlsAvailable(false);
